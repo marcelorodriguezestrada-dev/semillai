@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, AuthProvider } from "@/hooks/useAuth";
 
@@ -31,67 +31,63 @@ const PASOS = [
   ]},
 ];
 
-function OnboardingContent() {
-  const { user, token } = useAuth();
-  const router = useRouter();
+function SearchParamsReader({ onFromLanding }: { onFromLanding: (v: boolean) => void }) {
   const searchParams = useSearchParams();
-  const fromLanding = searchParams.get("from") === "landing";
+  useEffect(() => {
+    onFromLanding(searchParams.get("from") === "landing");
+  }, [searchParams, onFromLanding]);
+  return null;
+}
 
+function OnboardingContent() {
+  const { token } = useAuth();
+  const router = useRouter();
+  const [fromLanding, setFromLanding] = useState(false);
   const [paso, setPaso] = useState(0);
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  // Si viene del landing, pre-cargar datos guardados
   useEffect(() => {
-    if (fromLanding) {
-      const saved = localStorage.getItem("semillai_onboarding");
-      if (saved) {
-        try {
-          const data = JSON.parse(saved);
-          const preloaded: Record<string, string> = {};
-          if (data.idea) preloaded["descripcion"] = data.idea;
-          if (data.rubro) preloaded["rubro"] = data.rubro;
-          if (data.etapa) preloaded["etapa"] = data.etapa;
-          setRespuestas(preloaded);
-          // Si ya tiene rubro y etapa, saltar al paso del nombre
-          if (data.idea) setPaso(0); // solo falta el nombre
-        } catch {}
-      }
-    }
+    if (!fromLanding) return;
+    const saved = localStorage.getItem("semillai_onboarding");
+    if (!saved) return;
+    try {
+      const data = JSON.parse(saved);
+      const preloaded: Record<string, string> = {};
+      if (data.idea) preloaded["descripcion"] = data.idea;
+      if (data.rubro) preloaded["rubro"] = data.rubro;
+      if (data.etapa) preloaded["etapa"] = data.etapa;
+      setRespuestas(preloaded);
+    } catch {}
   }, [fromLanding]);
 
   const pasoActual = PASOS[paso];
   const valor = respuestas[pasoActual.id] || "";
   const puedeAvanzar = valor.trim().length > 0;
-
   const setValor = (v: string) => setRespuestas(prev => ({ ...prev, [pasoActual.id]: v }));
+  const progreso = ((paso + 1) / PASOS.length) * 100;
 
   const siguiente = async () => {
-    if (paso < PASOS.length - 1) {
-      setPaso(paso + 1);
-    } else {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/onboarding", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(respuestas),
-        });
-        if (!res.ok) throw new Error("Error guardando");
-        localStorage.removeItem("semillai_onboarding");
-        router.push("/dashboard");
-      } catch {
-        alert("Error al guardar. Intentá de nuevo.");
-      } finally {
-        setLoading(false);
-      }
-    }
+    if (paso < PASOS.length - 1) { setPaso(paso + 1); return; }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(respuestas),
+      });
+      if (!res.ok) throw new Error("Error guardando");
+      localStorage.removeItem("semillai_onboarding");
+      router.push("/dashboard");
+    } catch { alert("Error al guardar. Intentá de nuevo."); }
+    finally { setLoading(false); }
   };
-
-  const progreso = ((paso + 1) / PASOS.length) * 100;
 
   return (
     <div style={s.root}>
+      <Suspense fallback={null}>
+        <SearchParamsReader onFromLanding={setFromLanding} />
+      </Suspense>
       <div style={s.card}>
         <div style={s.header}>
           <span style={s.logo}>🌱 semillai</span>
@@ -102,13 +98,10 @@ function OnboardingContent() {
         </div>
         <div style={s.body}>
           {fromLanding && paso === 0 && (
-            <div style={s.fromLandingBadge}>
-              ✓ Tu idea ya fue guardada — solo completá estos datos
-            </div>
+            <div style={s.fromLandingBadge}>✓ Tu idea ya fue guardada — solo completá estos datos</div>
           )}
           <h2 style={s.titulo}>{pasoActual.titulo}</h2>
           <p style={s.subtitulo}>{pasoActual.subtitulo}</p>
-
           {pasoActual.tipo === "text" && (
             <input style={s.input} type="text" placeholder={pasoActual.placeholder}
               value={valor} onChange={e => setValor(e.target.value)}
@@ -133,8 +126,7 @@ function OnboardingContent() {
         </div>
         <div style={s.footer}>
           {paso > 0 && <button style={s.btnBack} onClick={() => setPaso(paso - 1)}>← Volver</button>}
-          <button
-            style={{ ...s.btnNext, ...(!puedeAvanzar || loading ? s.btnDisabled : {}) }}
+          <button style={{ ...s.btnNext, ...(!puedeAvanzar || loading ? s.btnDisabled : {}) }}
             onClick={siguiente} disabled={!puedeAvanzar || loading}>
             {loading ? "Generando tu roadmap..." : paso === PASOS.length - 1 ? "🚀 Crear mi plan" : "Siguiente →"}
           </button>
@@ -157,13 +149,13 @@ const s: Record<string, React.CSSProperties> = {
   progressBg: { height: 3, background: "var(--surface-2)" },
   progressFill: { height: 3, background: "var(--verde)", transition: "width 0.4s ease" },
   body: { padding: "32px 28px", display: "flex", flexDirection: "column", gap: 16 },
-  fromLandingBadge: { background: "rgba(0,196,125,0.08)", border: "1px solid rgba(0,196,125,0.2)", borderRadius: 8, padding: "8px 14px", color: "var(--verde)", fontSize: 12, fontWeight: 500 },
+  fromLandingBadge: { background: "rgba(0,196,125,0.08)", border: "1px solid rgba(0,196,125,0.2)", borderRadius: 8, padding: "8px 14px", color: "var(--verde)", fontSize: 12 },
   titulo: { color: "var(--text-primary)", fontSize: 22, fontWeight: 700, lineHeight: 1.3 },
   subtitulo: { color: "var(--text-muted)", fontSize: 14, lineHeight: 1.6 },
   input: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)", fontSize: 15, padding: "14px 16px", outline: "none", fontFamily: "inherit" },
   textarea: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)", fontSize: 14, padding: "14px 16px", outline: "none", fontFamily: "inherit", minHeight: 120, resize: "vertical", lineHeight: 1.6 },
   opciones: { display: "flex", flexDirection: "column", gap: 8 },
-  opcion: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 3, transition: "all 0.15s" },
+  opcion: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 3 },
   opcionActive: { border: "1.5px solid var(--verde)", background: "rgba(0,196,125,0.08)" },
   opcionLabel: { color: "var(--text-primary)", fontSize: 14, fontWeight: 600 },
   opcionDesc: { color: "var(--text-muted)", fontSize: 12 },
