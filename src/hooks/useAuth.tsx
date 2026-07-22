@@ -13,8 +13,8 @@ interface AuthCtx {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, pw: string) => Promise<boolean>;
-  signup: (email: string, pw: string) => Promise<boolean>;
+  login: (email: string, pw: string) => Promise<string | null>;
+  signup: (email: string, pw: string) => Promise<string | null>;
   logout: () => void;
   error: string | null;
 }
@@ -40,25 +40,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const login = async (email: string, pw: string) => {
+  // Retorna el token directamente, no espera onAuthStateChanged
+  const login = async (email: string, pw: string): Promise<string | null> => {
     setError(null);
     try {
-      await signInWithEmailAndPassword(auth, email, pw);
-      return true;
+      const cred = await signInWithEmailAndPassword(auth, email, pw);
+      const t = await cred.user.getIdToken();
+      setToken(t);
+      return t;
     } catch (e: any) {
       setError(e.message);
-      return false;
+      return null;
     }
   };
 
-  const signup = async (email: string, pw: string) => {
+  const signup = async (email: string, pw: string): Promise<string | null> => {
     setError(null);
     try {
-      await createUserWithEmailAndPassword(auth, email, pw);
-      return true;
+      const cred = await createUserWithEmailAndPassword(auth, email, pw);
+      const t = await cred.user.getIdToken();
+      setToken(t);
+      return t;
     } catch (e: any) {
       setError(e.message);
-      return false;
+      return null;
     }
   };
 
