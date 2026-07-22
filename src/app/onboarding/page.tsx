@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Suspense, useCallback } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, AuthProvider } from "@/hooks/useAuth";
 
@@ -47,7 +47,7 @@ function OnboardingContent() {
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
-  const [pendienteGuardar, setPendienteGuardar] = useState(false);
+  const guardandoRef = useRef(false); // evitar doble llamada
 
   // Pre-cargar datos del landing
   useEffect(() => {
@@ -64,29 +64,28 @@ function OnboardingContent() {
     } catch {}
   }, [fromLanding]);
 
-  // Cuando el usuario se loguea y hay un guardado pendiente, guardar
-  useEffect(() => {
-    if (pendienteGuardar && user && token) {
-      guardarProyecto(token, respuestas);
-    }
-  }, [pendienteGuardar, user, token]);
-
   const guardarProyecto = async (tkn: string, resp: Record<string, string>) => {
+    if (guardandoRef.current) return; // evitar doble ejecución
+    guardandoRef.current = true;
     setLoading(true);
     try {
       const res = await fetch("/api/onboarding", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tkn}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tkn}`,
+        },
         body: JSON.stringify(resp),
       });
-      if (!res.ok) throw new Error("Error guardando");
+      if (!res.ok) throw new Error(`Error ${res.status}`);
       localStorage.removeItem("semillai_onboarding");
       router.push("/dashboard");
-    } catch {
+    } catch (e: any) {
+      console.error("Error guardando:", e);
       alert("Error al guardar. Intentá de nuevo.");
-      setPendienteGuardar(false);
-      setShowAuth(false);
+      guardandoRef.current = false;
       setLoading(false);
+      setShowAuth(false);
     }
   };
 
@@ -101,7 +100,6 @@ function OnboardingContent() {
     if (user && token) {
       guardarProyecto(token, respuestas);
     } else {
-      setPendienteGuardar(true);
       setShowAuth(true);
     }
   };
@@ -123,8 +121,8 @@ function OnboardingContent() {
           {showAuth ? (
             <AuthInlineForm
               nombre={respuestas.nombre}
-              onAuth={(tkn, resp) => guardarProyecto(tkn, resp)}
               respuestas={respuestas}
+              onAuth={guardarProyecto}
             />
           ) : (
             <>
@@ -171,7 +169,6 @@ function OnboardingContent() {
   );
 }
 
-// ── Auth inline separado con acceso directo al token ──────────────────────
 function AuthInlineForm({ nombre, respuestas, onAuth }: {
   nombre?: string;
   respuestas: Record<string, string>;
@@ -184,16 +181,14 @@ function AuthInlineForm({ nombre, respuestas, onAuth }: {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!email || !pw) return;
+    if (!email || !pw || loading) return;
     setLoading(true);
-    let result: any;
-    if (mode === "signup") result = await signup(email, pw);
-    else result = await login(email, pw);
-    // signup/login deben retornar el token
-    if (result?.token) {
-      onAuth(result.token, respuestas);
+    const tkn = mode === "signup" ? await signup(email, pw) : await login(email, pw);
+    if (tkn) {
+      onAuth(tkn, respuestas);
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -219,7 +214,7 @@ function AuthInlineForm({ nombre, respuestas, onAuth }: {
         ))}
       </div>
       <input style={s.input} type="email" placeholder="Email" value={email}
-        onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+        onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} autoFocus />
       <input style={s.input} type="password" placeholder="Contraseña (mínimo 6 caracteres)" value={pw}
         onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
       {error && <p style={{ color: "#ff8080", fontSize: 12, margin: 0 }}>{error}</p>}
