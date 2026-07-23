@@ -1,19 +1,19 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth, AuthProvider } from "@/hooks/useAuth";
+export const dynamic = "force-dynamic";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 const PASOS = [
   { id: "nombre", titulo: "¿Cómo se llama tu emprendimiento?", subtitulo: "Si todavía no tiene nombre, poné una idea o descripción corta.", tipo: "text", placeholder: "Ej: Semillai, Mi tienda de ropa, AppDelivery..." },
   { id: "descripcion", titulo: "¿Qué problema resuelve?", subtitulo: "Describilo en 2-3 oraciones. Sé específico — ¿a quién le resuelve el problema?", tipo: "textarea", placeholder: "Ej: Ayudo a emprendedores a construir su negocio con IA..." },
-  { id: "etapa", titulo: "¿En qué etapa está tu emprendimiento?", subtitulo: "Esto nos ayuda a personalizar tu roadmap.", tipo: "opciones", opciones: [
+  { id: "etapa", titulo: "¿En qué etapa está tu emprendimiento?", tipo: "opciones", opciones: [
     { valor: "idea", label: "💡 Idea", desc: "Todavía es un concepto en mi cabeza" },
     { valor: "validando", label: "🔍 Validando", desc: "Estoy hablando con potenciales clientes" },
     { valor: "mvp", label: "🛠 MVP", desc: "Tengo un producto básico funcionando" },
     { valor: "primeros_clientes", label: "👥 Primeros clientes", desc: "Ya tengo algunas ventas o usuarios" },
     { valor: "creciendo", label: "🚀 Creciendo", desc: "Tengo tracción y quiero escalar" },
   ]},
-  { id: "rubro", titulo: "¿En qué rubro opera?", subtitulo: "Seleccioná el que mejor lo describe.", tipo: "opciones", opciones: [
+  { id: "rubro", titulo: "¿En qué rubro opera?", tipo: "opciones", opciones: [
     { valor: "tech", label: "💻 Tech / Software", desc: "Apps, SaaS, plataformas digitales" },
     { valor: "ecommerce", label: "🛒 E-commerce", desc: "Venta de productos online" },
     { valor: "servicios", label: "🤝 Servicios", desc: "Consultoría, freelance, agencia" },
@@ -22,7 +22,7 @@ const PASOS = [
     { valor: "salud", label: "🏥 Salud y bienestar", desc: "Fitness, nutrición, salud mental" },
     { valor: "otro", label: "🔧 Otro", desc: "No encaja en las anteriores" },
   ]},
-  { id: "objetivo", titulo: "¿Cuál es tu principal objetivo ahora?", subtitulo: "Enfocate en lo más urgente.", tipo: "opciones", opciones: [
+  { id: "objetivo", titulo: "¿Cuál es tu principal objetivo ahora?", tipo: "opciones", opciones: [
     { valor: "validar", label: "✅ Validar la idea", desc: "Confirmar que hay demanda real" },
     { valor: "primeros_clientes", label: "💰 Conseguir primeros clientes", desc: "Generar las primeras ventas" },
     { valor: "producto", label: "🛠 Construir el producto", desc: "Desarrollar el MVP" },
@@ -31,64 +31,32 @@ const PASOS = [
   ]},
 ];
 
-function OnboardingContent() {
-  const { user, token } = useAuth();
+export default function OnboardingPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const fromLanding = searchParams.get("from") === "landing";
-
   const [paso, setPaso] = useState(0);
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  // Si viene del landing, pre-cargar datos guardados
-  useEffect(() => {
-    if (fromLanding) {
-      const saved = localStorage.getItem("semillai_onboarding");
-      if (saved) {
-        try {
-          const data = JSON.parse(saved);
-          const preloaded: Record<string, string> = {};
-          if (data.idea) preloaded["descripcion"] = data.idea;
-          if (data.rubro) preloaded["rubro"] = data.rubro;
-          if (data.etapa) preloaded["etapa"] = data.etapa;
-          setRespuestas(preloaded);
-          // Si ya tiene rubro y etapa, saltar al paso del nombre
-          if (data.idea) setPaso(0); // solo falta el nombre
-        } catch {}
-      }
-    }
-  }, [fromLanding]);
-
   const pasoActual = PASOS[paso];
   const valor = respuestas[pasoActual.id] || "";
   const puedeAvanzar = valor.trim().length > 0;
+  const progreso = ((paso + 1) / PASOS.length) * 100;
 
   const setValor = (v: string) => setRespuestas(prev => ({ ...prev, [pasoActual.id]: v }));
 
   const siguiente = async () => {
-    if (paso < PASOS.length - 1) {
-      setPaso(paso + 1);
-    } else {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/onboarding", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(respuestas),
-        });
-        if (!res.ok) throw new Error("Error guardando");
-        localStorage.removeItem("semillai_onboarding");
-        router.push("/dashboard");
-      } catch {
-        alert("Error al guardar. Intentá de nuevo.");
-      } finally {
-        setLoading(false);
-      }
+    if (paso < PASOS.length - 1) { setPaso(paso + 1); return; }
+    setLoading(true);
+    try {
+      // Guardar en localStorage y redirigir al dashboard
+      localStorage.setItem("semillai_proyecto", JSON.stringify(respuestas));
+      router.push("/dashboard");
+    } catch {
+      alert("Error. Intentá de nuevo.");
+    } finally {
+      setLoading(false);
     }
   };
-
-  const progreso = ((paso + 1) / PASOS.length) * 100;
 
   return (
     <div style={s.root}>
@@ -101,14 +69,8 @@ function OnboardingContent() {
           <div style={{ ...s.progressFill, width: `${progreso}%` }} />
         </div>
         <div style={s.body}>
-          {fromLanding && paso === 0 && (
-            <div style={s.fromLandingBadge}>
-              ✓ Tu idea ya fue guardada — solo completá estos datos
-            </div>
-          )}
           <h2 style={s.titulo}>{pasoActual.titulo}</h2>
-          <p style={s.subtitulo}>{pasoActual.subtitulo}</p>
-
+          {pasoActual.subtitulo && <p style={s.subtitulo}>{pasoActual.subtitulo}</p>}
           {pasoActual.tipo === "text" && (
             <input style={s.input} type="text" placeholder={pasoActual.placeholder}
               value={valor} onChange={e => setValor(e.target.value)}
@@ -133,26 +95,13 @@ function OnboardingContent() {
         </div>
         <div style={s.footer}>
           {paso > 0 && <button style={s.btnBack} onClick={() => setPaso(paso - 1)}>← Volver</button>}
-          <button
-            style={{ ...s.btnNext, ...(!puedeAvanzar || loading ? s.btnDisabled : {}) }}
+          <button style={{ ...s.btnNext, ...(!puedeAvanzar || loading ? s.btnDisabled : {}) }}
             onClick={siguiente} disabled={!puedeAvanzar || loading}>
-            {loading ? "Generando tu roadmap..." : paso === PASOS.length - 1 ? "🚀 Crear mi plan" : "Siguiente →"}
+            {loading ? "Cargando..." : paso === PASOS.length - 1 ? "🚀 Ver mi roadmap →" : "Siguiente →"}
           </button>
         </div>
       </div>
     </div>
-  );
-}
-
-import { Suspense } from "react";
-
-export default function OnboardingPage() {
-  return (
-    <AuthProvider>
-      <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--bg)" }} />}>
-        <OnboardingContent />
-      </Suspense>
-    </AuthProvider>
   );
 }
 
@@ -165,13 +114,12 @@ const s: Record<string, React.CSSProperties> = {
   progressBg: { height: 3, background: "var(--surface-2)" },
   progressFill: { height: 3, background: "var(--verde)", transition: "width 0.4s ease" },
   body: { padding: "32px 28px", display: "flex", flexDirection: "column", gap: 16 },
-  fromLandingBadge: { background: "rgba(0,196,125,0.08)", border: "1px solid rgba(0,196,125,0.2)", borderRadius: 8, padding: "8px 14px", color: "var(--verde)", fontSize: 12, fontWeight: 500 },
-  titulo: { color: "var(--text-primary)", fontSize: 22, fontWeight: 700, lineHeight: 1.3 },
-  subtitulo: { color: "var(--text-muted)", fontSize: 14, lineHeight: 1.6 },
+  titulo: { color: "var(--text-primary)", fontSize: 22, fontWeight: 700, lineHeight: 1.3, margin: 0 },
+  subtitulo: { color: "var(--text-muted)", fontSize: 14, lineHeight: 1.6, margin: 0 },
   input: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)", fontSize: 15, padding: "14px 16px", outline: "none", fontFamily: "inherit" },
   textarea: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)", fontSize: 14, padding: "14px 16px", outline: "none", fontFamily: "inherit", minHeight: 120, resize: "vertical", lineHeight: 1.6 },
   opciones: { display: "flex", flexDirection: "column", gap: 8 },
-  opcion: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 3, transition: "all 0.15s" },
+  opcion: { background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 3 },
   opcionActive: { border: "1.5px solid var(--verde)", background: "rgba(0,196,125,0.08)" },
   opcionLabel: { color: "var(--text-primary)", fontSize: 14, fontWeight: 600 },
   opcionDesc: { color: "var(--text-muted)", fontSize: 12 },
